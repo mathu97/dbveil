@@ -1,65 +1,68 @@
 from __future__ import annotations
 
 import json
+import time
+from collections import deque
 from pathlib import Path
 
+from rich.console import Console
+from rich.live import Live
+from rich.table import Table
 from rich.text import Text
-from textual.app import App, ComposeResult
-from textual.widgets import DataTable, Footer, Header
 
 _COLORS = {"allowed": "green", "blocked": "red", "error": "yellow"}
 
 
-class MonitorApp(App):
-    TITLE = "veil monitor"
-    BINDINGS = [("q", "quit", "Quit")]
+def _render(entries, path: Path):
+    table = Table(
+        title=f"veil monitor — tailing {path}  (Ctrl-C to quit)",
+        expand=True,
+        header_style="bold",
+    )
+    table.add_column("time")
+    table.add_column("status")
+    table.add_column("rows", justify="right")
+    table.add_column("redactions", justify="right")
+    table.add_column("ms", justify="right")
+    table.add_column("query", overflow="fold")
+    for e in entries:
+        status = e.get("status", "?")
+        table.add_row(
+            (e.get("ts", "") or "")[11:19],
+            Text(status, style=_COLORS.get(status, "white")),
+            str(e.get("rows", "")),
+            str(e.get("redactions", "")),
+            str(e.get("duration_ms", "")),
+            (e.get("sql", "") or "").replace("\n", " ")[:120],
+        )
+    return table
 
-    def __init__(self, path: str) -> None:
-        super().__init__()
-        self.path = Path(path)
-        self._offset = 0
 
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield DataTable(zebra_stripes=True)
-        yield Footer()
+def run_monitor(path: str, limit: int = 30) -> None:
+    p = Path(path)
+    entries: deque = deque(maxlen=limit)
+    offset = 0
+    console = Console()
 
-    def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        table.add_columns("time", "status", "rows", "redactions", "ms", "query")
-        self.set_interval(1.0, self._poll)
-        self._poll()
-
-    def _poll(self) -> None:
-        if not self.path.exists():
-            return
-        with self.path.open() as f:
-            f.seek(self._offset)
-            chunk = f.read()
-            self._offset = f.tell()
-
-        table = self.query_one(DataTable)
-        for line in chunk.splitlines():
-            if not line.strip():
-                continue
-            try:
-                e = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            status = e.get("status", "?")
-            table.add_row(
-                (e.get("ts", "") or "")[11:19],
-                Text(status, style=_COLORS.get(status, "white")),
-                str(e.get("rows", "")),
-                str(e.get("redactions", "")),
-                str(e.get("duration_ms", "")),
-                (e.get("sql", "") or "").replace("\n", " ")[:90],
-            )
+    with Live(_render(entries, p), console=console, refresh_per_second=4, screen=False) as live:
         try:
-            table.scroll_end(animate=False)
-        except Exception:
+            while True:
+                if p.exists():
+                    with p.open() as f:
+                        f.seek(offset)
+                        chunk = f.read()
+                        offset = f.tell()
+                    for line in chunk.splitlines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entries.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+                    live.update(_render(entries, p))
+                else:
+                    live.update(Text(f"waiting for audit log at {p} …", style="dim"))
+                time.sleep(0.5)
+        except KeyboardInterrupt:
             pass
-
-
-def run_monitor(path: str) -> None:
-    MonitorApp(path).run()

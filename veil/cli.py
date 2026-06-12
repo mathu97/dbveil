@@ -172,13 +172,10 @@ def up(
 def monitor(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
-    """Open a live TUI tailing the audit log (allowed / blocked / redactions)."""
+    """Live view of the audit log (allowed / blocked / redactions). Ctrl-C to quit."""
     cfg = _load(config)
-    try:
-        from .tui import run_monitor
-    except ImportError:
-        err.print("[yellow]TUI not installed. Run: pip install 'dbveil[tui]'[/]")
-        raise typer.Exit(1)
+    from .tui import run_monitor
+
     run_monitor(cfg.audit_log)
 
 

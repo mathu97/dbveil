@@ -39,7 +39,6 @@ pip install dbveil          # or: uv pip install dbveil
 # optional extras:
 pip install 'dbveil[ner]'   # Presidio NER backstop for names/addresses
 pip install 'dbveil[llm]'   # local-LLM (Ollama) redaction
-pip install 'dbveil[tui]'   # live monitor TUI
 ```
 
 ## Quickstart
