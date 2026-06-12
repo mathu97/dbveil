@@ -18,6 +18,7 @@ from . import __version__
 from .config import Config
 from .executor import Executor
 from .guard import check_query
+from .resolvers import describe_ref
 
 app = typer.Typer(
     add_completion=False,
@@ -87,11 +88,17 @@ def init(
 @app.command()
 def doctor(
     config: str = typer.Option(None, "--config", "-c", help="Path to veil.yaml."),
+    db: str = typer.Option(None, "--db", "-d", help="Which database instance to probe (default: configured default)."),
 ) -> None:
     """Verify the guard, database connectivity, and read-only enforcement."""
     cfg = _load(config)
+    try:
+        view = cfg.instance(db)
+    except KeyError as exc:
+        err.print(f"[red]{exc}[/]")
+        raise typer.Exit(1)
 
-    table = Table(title="veil doctor", show_header=True, header_style="bold")
+    table = Table(title=f"veil doctor · {view.name}", show_header=True, header_style="bold")
     table.add_column("check")
     table.add_column("result")
 
@@ -108,11 +115,14 @@ def doctor(
     readonly_ok = False
     detail = ""
     try:
-        conn_ok, readonly_ok = asyncio.run(_probe(cfg))
+        conn_ok, readonly_ok = asyncio.run(_probe(view))
     except Exception as exc:
         detail = str(exc)
 
-    table.add_row("database connection", _mark(conn_ok) + (f"  [dim]{detail}[/]" if detail else ""))
+    table.add_row(
+        f"connection to '{view.name}' (via {describe_ref(view.url)})",
+        _mark(conn_ok) + (f"  [dim]{detail}[/]" if detail else ""),
+    )
     table.add_row("server-side READ ONLY transaction rejects writes", _mark(readonly_ok))
 
     console.print(table)
@@ -124,10 +134,15 @@ def doctor(
 def test_query(
     sql: str = typer.Argument(..., help="A read-only SQL query to run through veil."),
     config: str = typer.Option(None, "--config", "-c"),
+    db: str = typer.Option(None, "--db", "-d", help="Which database instance to query (default: configured default)."),
 ) -> None:
     """Run one query through the full guard + redact pipeline and print the result."""
     cfg = _load(config)
-    outcome = asyncio.run(_run_one(cfg, sql))
+    try:
+        outcome = asyncio.run(_run_one(cfg, sql, db))
+    except KeyError as exc:
+        err.print(f"[red]{exc}[/]")
+        raise typer.Exit(1)
 
     if outcome.blocked_reason:
         console.print(Panel(f"[bold red]BLOCKED[/]\n{outcome.blocked_reason}", border_style="red"))
@@ -158,14 +173,36 @@ def up(
 ) -> None:
     """Run the MCP proxy on stdio (this is what Claude Code connects to)."""
     cfg = _load(config)
+    names = cfg.instance_names()
     err.print(
         f"[bold green]veil[/] up · stdio · guard=read-only · "
-        f"redact={'on' if cfg.redact.columns or cfg.redact.ner.enabled else 'patterns-only'} · "
-        f"audit→{cfg.audit_log}"
+        f"databases={', '.join(names)} (default: {cfg.default}) · audit→{cfg.audit_log}"
     )
     from .mcp_server import build_server
 
     build_server(cfg).run()
+
+
+@app.command()
+def instances(
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """List configured database instances and how each DSN is resolved."""
+    cfg = _load(config)
+    table = Table(title="veil databases", show_header=True, header_style="bold")
+    table.add_column("name")
+    table.add_column("source")
+    table.add_column("reference")
+    table.add_column("default", justify="center")
+    for name in cfg.instance_names():
+        view = cfg.instance(name)
+        table.add_row(
+            name,
+            describe_ref(view.url),
+            _safe_ref(view.url),
+            "●" if name == cfg.default else "",
+        )
+    console.print(table)
 
 
 @app.command()
@@ -203,8 +240,8 @@ async def _introspect(dsn: str) -> tuple[list[tuple[str, str, str]], list[str]]:
     return rules, sorted(pii_tables)
 
 
-async def _probe(cfg: Config) -> tuple[bool, bool]:
-    ex = Executor(cfg.database.url)
+async def _probe(view) -> tuple[bool, bool]:
+    ex = Executor(view.url)
     try:
         await ex.run("SELECT 1")
         conn_ok = True
@@ -218,18 +255,25 @@ async def _probe(cfg: Config) -> tuple[bool, bool]:
         await ex.close()
 
 
-async def _run_one(cfg: Config, sql: str):
-    from .pipeline import Pipeline
+async def _run_one(cfg: Config, sql: str, db: str | None = None):
+    from .engine import Veil
 
-    pipeline = Pipeline(cfg)
+    veil = Veil(cfg)
     try:
-        return await pipeline.query(sql)
+        return await veil.query(sql, db)
     finally:
-        await pipeline.close()
+        await veil.close()
 
 
 def _mark(ok: bool) -> str:
     return "[green]PASS[/]" if ok else "[red]FAIL[/]"
+
+
+def _safe_ref(ref: str) -> str:
+    scheme = ref.split("://", 1)[0].lower() if "://" in ref else ""
+    if scheme in ("op", "env", "gcp"):
+        return ref
+    return re.sub(r"(://[^:/@]+:)[^@]+(@)", r"\1***\2", ref)
 
 
 def _render_config(db_url: str, rules: list[tuple[str, str, str]], pii_tables: list[str]) -> str:

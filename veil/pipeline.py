@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass, field
 
 from .audit import AuditLog
-from .config import Config
+from .config import InstanceView
 from .executor import Executor
 from .guard import check_query
 from .redact import Redactor
@@ -13,6 +13,7 @@ from .redact import Redactor
 @dataclass
 class QueryOutcome:
     ok: bool
+    database: str | None = None
     columns: list[str] = field(default_factory=list)
     rows: list[list] = field(default_factory=list)
     row_count: int = 0
@@ -24,29 +25,28 @@ class QueryOutcome:
 
 
 class Pipeline:
-    def __init__(self, config: Config) -> None:
-        self.config = config
+    def __init__(self, view: InstanceView, audit: AuditLog) -> None:
+        self.view = view
         self.executor = Executor(
-            config.database.url,
-            config.guard.statement_timeout_ms,
-            config.guard.max_rows,
+            view.url,
+            view.guard.statement_timeout_ms,
+            view.guard.max_rows,
         )
-        self.redactor = Redactor(config.redact)
-        self.audit = AuditLog(config.audit_log)
+        self.redactor = Redactor(view.redact)
+        self.audit = audit
 
     async def query(self, sql: str) -> QueryOutcome:
         start = time.perf_counter()
+        db = self.view.name
 
         verdict = check_query(
             sql,
-            allow_select_star=self.config.guard.allow_select_star,
-            pii_tables=self.config.guard.pii_tables,
+            allow_select_star=self.view.guard.allow_select_star,
+            pii_tables=self.view.guard.pii_tables,
         )
         if not verdict.allowed:
             outcome = QueryOutcome(
-                ok=False,
-                blocked_reason=verdict.reason,
-                duration_ms=_ms(start),
+                ok=False, database=db, blocked_reason=verdict.reason, duration_ms=_ms(start)
             )
             self.audit.record(sql, outcome)
             return outcome
@@ -54,13 +54,14 @@ class Pipeline:
         try:
             rs = await self.executor.run(sql)
         except Exception as exc:
-            outcome = QueryOutcome(ok=False, error=str(exc), duration_ms=_ms(start))
+            outcome = QueryOutcome(ok=False, database=db, error=str(exc), duration_ms=_ms(start))
             self.audit.record(sql, outcome)
             return outcome
 
         redactions = self.redactor.apply(rs)
         outcome = QueryOutcome(
             ok=True,
+            database=db,
             columns=rs.columns,
             rows=rs.rows,
             row_count=rs.row_count,

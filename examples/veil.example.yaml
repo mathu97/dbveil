@@ -1,44 +1,53 @@
 # veil configuration — https://github.com/mathu97/dbveil
-# Copy to veil.yaml and edit. Secrets should stay in env vars (${VAR} is expanded at load).
+# Copy to veil.yaml and edit. Secrets never live in this file — the `url` of each
+# database is a *reference* resolved at connect time, by scheme:
+#
+#   op://vault/item/field   -> 1Password CLI (uses your existing op auth)
+#   gcp://project/secret     -> GCP Secret Manager (coming soon)
+#   env://VAR_NAME           -> environment variable
+#   ${VAR}                   -> inline env expansion (kept out of the file)
+#   postgresql://…           -> a literal DSN
 
-database:
-  url: ${DATABASE_URL}   # e.g. postgresql://ai_analyst:***@db.internal:5432/app
+# --- Multiple named instances: the agent picks one per query (default if omitted) ---
+databases:
+  staging:
+    url: op://Engineering/veil-staging-db/dsn
+  prod:
+    url: op://Engineering/veil-prod-db/dsn
+    # per-instance overrides are optional; otherwise the shared guard/redact below apply
+    guard:
+      max_rows: 200
+default: staging
 
+# (Single-DB still works: replace the block above with
+#   database:
+#     url: ${VEIL_DATABASE_URL}
+# and veil treats it as the lone "default" instance.)
+
+# --- Shared guard + redaction, applied to every instance unless it overrides them ---
 guard:
   allow_select_star: false      # block SELECT * on PII tables; force explicit column lists
-  max_rows: 1000                # cap rows returned to the agent
-  statement_timeout_ms: 15000   # kill slow queries
-  pii_tables:                   # SELECT * is always rejected on these
+  max_rows: 1000
+  statement_timeout_ms: 15000
+  pii_tables:
     - contacts
     - users
 
 redact:
-  # Deterministic, always-on regex redaction for structured PII. Catches values
-  # even when aliased (SELECT email AS e) or buried in free-text columns.
   builtin_patterns:
     email: true
     phone: true
-    credit_card: true   # Luhn-checked to cut false positives
+    credit_card: true           # Luhn-checked to cut false positives
     ssn: true
     ip: false
-  hash_salt: ""         # set a stable secret to keep hashed values join-able across runs
-
-  # Column-level rules applied by output column name.
-  # strategy: mask (-> [redacted]) | null | hash (sha256, join-able) | partial (keep last N)
+  hash_salt: ""                 # set a stable secret to keep hashed values join-able across runs
   columns:
     - { column: email, strategy: hash }
     - { column: phone, strategy: mask }
     - { column: full_name, strategy: mask }
     - { column: ssn, strategy: partial, keep: 4 }
-
-  # Optional probabilistic NER for free-text PII (names, addresses) the rules above miss.
-  # Backstop only, never the sole control. Needs: pip install 'dbveil[ner]'  (or [llm])
   ner:
     enabled: false
     engine: presidio            # presidio | llm
-    entities: [PERSON, LOCATION, EMAIL_ADDRESS, PHONE_NUMBER]
-    score_threshold: 0.5
-    ollama_url: http://localhost:11434
-    ollama_model: llama3.2
 
 audit_log: veil-audit.jsonl

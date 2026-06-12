@@ -18,6 +18,7 @@ class AuditLog:
             status = "allowed"
         entry = {
             "ts": datetime.now(timezone.utc).isoformat(),
+            "database": outcome.database,
             "status": status,
             "sql": sql.strip()[:2000],
             "reason": outcome.blocked_reason,

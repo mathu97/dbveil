@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
@@ -61,11 +62,70 @@ class DatabaseConfig(BaseModel):
     url: str
 
 
+class InstanceConfig(BaseModel):
+    url: str
+    guard: GuardConfig | None = None
+    redact: RedactConfig | None = None
+
+
+@dataclass
+class InstanceView:
+    name: str
+    url: str
+    guard: GuardConfig
+    redact: RedactConfig
+
+
 class Config(BaseModel):
-    database: DatabaseConfig
+    database: DatabaseConfig | None = None
+    databases: dict[str, InstanceConfig] = Field(default_factory=dict)
+    default: str | None = None
     guard: GuardConfig = Field(default_factory=GuardConfig)
     redact: RedactConfig = Field(default_factory=RedactConfig)
     audit_log: str = "veil-audit.jsonl"
+
+    @model_validator(mode="after")
+    def _normalize(self) -> "Config":
+        if not self.databases:
+            if self.database is not None:
+                self.databases = {"default": InstanceConfig(url=self.database.url)}
+            else:
+                raise ValueError("config must define either `database.url` or a `databases:` map")
+
+        if self.default is None:
+            if "default" in self.databases:
+                self.default = "default"
+            elif len(self.databases) == 1:
+                self.default = next(iter(self.databases))
+            else:
+                raise ValueError(
+                    "multiple databases configured — set `default:` to one of: "
+                    + ", ".join(self.databases)
+                )
+
+        if self.default not in self.databases:
+            raise ValueError(
+                f"`default: {self.default}` is not one of the configured databases: "
+                + ", ".join(self.databases)
+            )
+        return self
+
+    def instance(self, name: str | None = None) -> InstanceView:
+        name = name or self.default
+        if name not in self.databases:
+            raise KeyError(
+                f"unknown database {name!r}. configured: {', '.join(self.databases)}"
+            )
+        inst = self.databases[name]
+        return InstanceView(
+            name=name,
+            url=inst.url,
+            guard=inst.guard or self.guard,
+            redact=inst.redact or self.redact,
+        )
+
+    def instance_names(self) -> list[str]:
+        return list(self.databases)
 
     @classmethod
     def default_path(cls) -> Path:

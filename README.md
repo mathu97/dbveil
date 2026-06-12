@@ -73,8 +73,39 @@ or commit a `.mcp.json` so your whole team gets it:
 }
 ```
 
-Now the agent has three tools — `query`, `list_tables`, `describe_table` — and physically
-cannot write or see raw PII.
+Now the agent has these tools — `query`, `list_tables`, `describe_table`, `list_databases` —
+and physically cannot write or see raw PII.
+
+## Databases & secret resolution
+
+You never put a DSN (or a secret) directly in the file. Each database's `url` is a *reference*
+resolved at connect time, chosen by its scheme:
+
+| Reference | Resolved by |
+|---|---|
+| `op://vault/item/field` | **1Password** CLI (`op read`) — uses your existing 1Password auth; `OP_SERVICE_ACCOUNT_TOKEN` in CI |
+| `env://VAR_NAME` | environment variable |
+| `${VAR}` | inline env expansion |
+| `gcp://project/secret` | GCP Secret Manager *(coming soon)* |
+| `postgresql://…` | a literal DSN |
+
+Configure one or many named instances; the agent picks one per query (`query(sql, database="prod")`),
+or the CLI with `--db`:
+
+```yaml
+databases:
+  staging: { url: "op://Engineering/veil-staging-db/dsn" }
+  prod:    { url: "op://Engineering/veil-prod-db/dsn" }
+default: staging
+```
+
+```bash
+veil instances                 # list configured DBs and how each resolves (no secrets read)
+veil doctor --db prod          # verify a specific instance
+veil test-query --db prod "…"  # query a specific instance
+```
+
+A single `database.url:` still works and becomes the lone `default` instance.
 
 ### Watch it live
 

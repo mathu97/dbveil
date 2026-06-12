@@ -2,19 +2,23 @@ from __future__ import annotations
 
 import asyncpg
 
+from .resolvers import resolve_url
 from .result import ResultSet
 
 
 class Executor:
-    def __init__(self, dsn: str, statement_timeout_ms: int = 15000, max_rows: int = 1000) -> None:
-        self.dsn = dsn
+    def __init__(self, url_ref: str, statement_timeout_ms: int = 15000, max_rows: int = 1000) -> None:
+        self.url_ref = url_ref
         self.statement_timeout_ms = statement_timeout_ms
         self.max_rows = max_rows
+        self._dsn: str | None = None
         self._pool: asyncpg.Pool | None = None
 
     async def connect(self) -> None:
         if self._pool is None:
-            self._pool = await asyncpg.create_pool(self.dsn, min_size=1, max_size=4)
+            if self._dsn is None:
+                self._dsn = resolve_url(self.url_ref)
+            self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=4)
 
     async def close(self) -> None:
         if self._pool is not None:
