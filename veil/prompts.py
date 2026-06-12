@@ -7,9 +7,19 @@ Wraps InquirerPy. Imported lazily so non-interactive commands stay fast.
 
 
 def text(message: str, default: str | None = None) -> str:
-    from InquirerPy import inquirer
+    """Free-text input. `default` is shown as a greyed placeholder: pressing Enter
+    on an empty field uses it; typing replaces it."""
+    from html import escape
 
-    return inquirer.text(message=message, default=default or "").execute().strip()
+    from prompt_toolkit import prompt as pt_prompt
+    from prompt_toolkit.formatted_text import HTML
+
+    placeholder = (
+        HTML(f'<style fg="ansibrightblack">{escape(str(default))}</style>') if default else None
+    )
+    message_ft = HTML(f'<style fg="ansigreen">?</style> {escape(message)} ')
+    result = pt_prompt(message_ft, placeholder=placeholder).strip()
+    return result or (default or "")
 
 
 def confirm(message: str, default: bool = False) -> bool:
