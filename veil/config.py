@@ -76,7 +76,7 @@ class Config(BaseModel):
         path = Path(path) if path else cls.default_path()
         if not path.exists():
             raise FileNotFoundError(
-                f"config not found at {path}. Run `pgveil init` to create one."
+                f"config not found at {path}. Run `veil init` to create one."
             )
         data = yaml.safe_load(path.read_text()) or {}
         _expand_env(data)

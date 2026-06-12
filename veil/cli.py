@@ -32,6 +32,17 @@ def _resolve_env(url: str) -> str:
     return re.sub(r"\$\{([A-Z0-9_]+)\}", lambda m: os.environ.get(m.group(1), m.group(0)), url)
 
 
+def _load(path):
+    try:
+        return Config.load(path)
+    except FileNotFoundError as exc:
+        err.print(f"[red]config error:[/] {exc}")
+        raise typer.Exit(1)
+    except Exception as exc:
+        err.print(f"[red]could not load config:[/] {exc}")
+        raise typer.Exit(1)
+
+
 @app.command()
 def version() -> None:
     """Print the veil version."""
@@ -73,7 +84,7 @@ def doctor(
     config: str = typer.Option(None, "--config", "-c", help="Path to veil.yaml."),
 ) -> None:
     """Verify the guard, database connectivity, and read-only enforcement."""
-    cfg = Config.load(config)
+    cfg = _load(config)
 
     table = Table(title="veil doctor", show_header=True, header_style="bold")
     table.add_column("check")
@@ -110,7 +121,7 @@ def test_query(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     """Run one query through the full guard + redact pipeline and print the result."""
-    cfg = Config.load(config)
+    cfg = _load(config)
     outcome = asyncio.run(_run_one(cfg, sql))
 
     if outcome.blocked_reason:
@@ -141,7 +152,7 @@ def up(
     config: str = typer.Option(None, "--config", "-c", help="Path to veil.yaml."),
 ) -> None:
     """Run the MCP proxy on stdio (this is what Claude Code connects to)."""
-    cfg = Config.load(config)
+    cfg = _load(config)
     err.print(
         f"[bold green]veil[/] up · stdio · guard=read-only · "
         f"redact={'on' if cfg.redact.columns or cfg.redact.ner.enabled else 'patterns-only'} · "
@@ -157,7 +168,7 @@ def monitor(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     """Open a live TUI tailing the audit log (allowed / blocked / redactions)."""
-    cfg = Config.load(config)
+    cfg = _load(config)
     try:
         from .tui import run_monitor
     except ImportError:
