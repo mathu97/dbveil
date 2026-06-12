@@ -15,14 +15,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
 
-      - name: Install (with dev extras)
-        run: uv pip install --system -e '.[dev]'
+      - name: Create venv & install (with dev extras)
+        run: |
+          uv venv --python 3.12
+          uv pip install -e '.[dev]'
 
       - name: Test
-        run: pytest -q
+        run: .venv/bin/pytest -q
 
       - name: Verify version matches release tag
         run: |
