@@ -19,6 +19,7 @@ dependencies = [
     "typer>=0.12",
     "rich>=13.7",
     "mcp>=1.2",
+    "inquirerpy>=0.3",
 ]
 
 [project.optional-dependencies]

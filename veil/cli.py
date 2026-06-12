@@ -81,7 +81,9 @@ def init(
     instances: dict[str, str] = {}
     while True:
         default_name = "default" if not instances else f"db{len(instances) + 1}"
-        name = typer.prompt("Database name", default=default_name).strip()
+        name = _text("Database name", default=default_name)
+        if not name:
+            name = default_name
         if name in instances:
             err.print(f"[yellow]'{name}' is already added — pick another name.[/]")
             continue
@@ -89,18 +91,17 @@ def init(
         if not url:
             continue
         instances[name] = url
-        if not typer.confirm("Add another database?", default=False):
+        if not _confirm("Add another database?", default=False):
             break
 
     if len(instances) == 1:
         default = next(iter(instances))
     else:
-        console.print("\nWhich database should be the default?")
-        default = _pick_from("default", list(instances))
+        default = _select("Which database is the default?", list(instances))
 
     rules: list[tuple[str, str, str]] = []
     pii_tables: list[str] = []
-    if typer.confirm(f"Introspect '{default}' now to auto-suggest PII columns?", default=False):
+    if _confirm(f"Introspect '{default}' now to auto-suggest PII columns?", default=False):
         try:
             rules, pii_tables = asyncio.run(_introspect(_resolve_env(instances[default])))
             console.print(f"[green]Found {len(rules)} likely PII column(s) across {len(pii_tables)} table(s).[/]")
@@ -113,17 +114,21 @@ def init(
 
 
 def _choose_source(name: str) -> str | None:
-    console.print(f"\nHow should veil get the connection string for [bold]{name}[/]?")
-    console.print("  [1] 1Password — browse and pick a secret (op://)")
-    console.print("  [2] Paste a value — a postgresql:// URL or an op:// / env:// reference")
-    console.print("  [3] Environment variable — env://VAR")
-    choice = typer.prompt("Choose", default="1").strip()
-    if choice == "1":
+    from InquirerPy.base.control import Choice
+
+    choice = _select(
+        f"How should veil get the connection string for {name}?",
+        [
+            Choice("op", "1Password — browse and pick a secret (op://)"),
+            Choice("paste", "Paste a value — a postgresql:// URL or an op:// / env:// reference"),
+            Choice("env", "Environment variable — env://VAR"),
+        ],
+    )
+    if choice == "op":
         return _pick_onepassword()
-    if choice == "3":
-        var = typer.prompt("Environment variable name", default="VEIL_DATABASE_URL").strip()
-        return f"env://{var}"
-    return typer.prompt("Connection string or reference").strip()
+    if choice == "env":
+        return f"env://{_text('Environment variable name', default='VEIL_DATABASE_URL')}"
+    return _text("Connection string or reference")
 
 
 def _pick_onepassword() -> str | None:
@@ -140,9 +145,9 @@ def _pick_onepassword() -> str | None:
     if len(accounts) == 1:
         account = accounts[0][1]
     elif len(accounts) > 1:
-        console.print("\nYou have multiple 1Password accounts — pick one:")
-        idx = _pick_index("account", [label for label, _ in accounts])
-        account = accounts[idx][1]
+        by_label = {label: ref for label, ref in accounts}
+        label = _fuzzy("Pick a 1Password account", list(by_label))
+        account = by_label[label]
 
     try:
         op.ensure_signed_in(account)
@@ -151,20 +156,17 @@ def _pick_onepassword() -> str | None:
         return _manual_op_ref()
 
     try:
-        console.print("\nPick a vault:")
-        vault = _pick_from("vault", op.list_vaults(account))
+        vault = _fuzzy("Pick a vault", op.list_vaults(account))
         items = op.list_items(vault, account)
         if not items:
             err.print("[yellow]no items in that vault[/]")
             return _manual_op_ref()
-        console.print("\nPick the item holding the connection string:")
-        item = _pick_from("item", items)
+        item = _fuzzy("Pick the item with the connection string", items)
         fields = op.list_fields(vault, item, account)
         if not fields:
             err.print("[yellow]no fields on that item[/]")
             return _manual_op_ref()
-        console.print("\nPick the field with the DSN:")
-        field = _pick_from("field", fields)
+        field = _fuzzy("Pick the field with the DSN", fields)
     except op.OpError as exc:
         err.print(f"[red]1Password error:[/] {exc}")
         return _manual_op_ref()
@@ -175,23 +177,33 @@ def _pick_onepassword() -> str | None:
 
 
 def _manual_op_ref() -> str | None:
-    if typer.confirm("Paste an op:// reference manually instead?", default=True):
-        return typer.prompt("op:// reference").strip()
+    if _confirm("Paste an op:// reference manually instead?", default=True):
+        return _text("op:// reference")
     return None
 
 
-def _pick_index(label: str, options: list[str]) -> int:
-    for i, opt in enumerate(options, 1):
-        console.print(f"  [{i}] {opt}")
-    while True:
-        raw = typer.prompt(f"Select {label} (number)").strip()
-        if raw.isdigit() and 1 <= int(raw) <= len(options):
-            return int(raw) - 1
-        err.print("[yellow]enter a number from the list[/]")
+def _text(message: str, default: str | None = None) -> str:
+    from . import prompts
+
+    return prompts.text(message, default)
 
 
-def _pick_from(label: str, options: list[str]) -> str:
-    return options[_pick_index(label, options)]
+def _confirm(message: str, default: bool = False) -> bool:
+    from . import prompts
+
+    return prompts.confirm(message, default)
+
+
+def _select(message: str, choices, default=None):
+    from . import prompts
+
+    return prompts.select(message, choices, default)
+
+
+def _fuzzy(message: str, choices) -> str:
+    from . import prompts
+
+    return prompts.fuzzy(message, choices)
 
 
 @app.command()
