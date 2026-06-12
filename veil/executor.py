@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 import asyncpg
 
+from .log import mask_dsn
 from .resolvers import resolve_url
 from .result import ResultSet
+
+log = logging.getLogger(__name__)
 
 
 class Executor:
@@ -18,6 +23,7 @@ class Executor:
         if self._pool is None:
             if self._dsn is None:
                 self._dsn = resolve_url(self.url_ref)
+            log.debug("opening connection pool to %s", mask_dsn(self._dsn))
             self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=4)
 
     async def close(self) -> None:

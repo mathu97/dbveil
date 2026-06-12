@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 
@@ -8,6 +9,8 @@ from .config import InstanceView
 from .executor import Executor
 from .guard import check_query
 from .redact import Redactor
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,6 +41,7 @@ class Pipeline:
     async def query(self, sql: str) -> QueryOutcome:
         start = time.perf_counter()
         db = self.view.name
+        log.debug("[%s] query: %s", db, sql.strip().replace("\n", " ")[:200])
 
         verdict = check_query(
             sql,
@@ -45,20 +49,24 @@ class Pipeline:
             pii_tables=self.view.guard.pii_tables,
         )
         if not verdict.allowed:
+            log.debug("[%s] guard BLOCKED: %s", db, verdict.reason)
             outcome = QueryOutcome(
                 ok=False, database=db, blocked_reason=verdict.reason, duration_ms=_ms(start)
             )
             self.audit.record(sql, outcome)
             return outcome
+        log.debug("[%s] guard allowed", db)
 
         try:
             rs = await self.executor.run(sql)
         except Exception as exc:
+            log.debug("[%s] execution error: %s", db, exc)
             outcome = QueryOutcome(ok=False, database=db, error=str(exc), duration_ms=_ms(start))
             self.audit.record(sql, outcome)
             return outcome
 
         redactions = self.redactor.apply(rs)
+        log.debug("[%s] %d rows, %d redactions, %.0fms", db, rs.row_count, redactions, _ms(start))
         outcome = QueryOutcome(
             ok=True,
             database=db,

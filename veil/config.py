@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -140,7 +141,14 @@ class Config(BaseModel):
             )
         data = yaml.safe_load(path.read_text()) or {}
         _expand_env(data)
-        return cls(**data)
+        cfg = cls(**data)
+        logging.getLogger(__name__).debug(
+            "loaded config from %s; databases=%s default=%s",
+            path,
+            ", ".join(cfg.instance_names()),
+            cfg.default,
+        )
+        return cfg
 
     def dump_yaml(self) -> str:
         return yaml.safe_dump(self.model_dump(mode="json"), sort_keys=False)

@@ -27,6 +27,17 @@ app = typer.Typer(
 console = Console()
 err = Console(stderr=True)
 
+
+@app.callback()
+def _main(
+    debug: bool = typer.Option(
+        False, "--debug", help="Print debug logs to stderr (or set VEIL_DEBUG=1)."
+    ),
+) -> None:
+    from .log import configure
+
+    configure(debug)
+
 _PII_HINTS = (
     "email", "e_mail", "phone", "mobile", "fax", "name", "first", "last",
     "address", "street", "city", "zip", "postal", "ssn", "social",

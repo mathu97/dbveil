@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
+
+log = logging.getLogger(__name__)
 
 MIN_VERSION = (2, 0, 0)
 
@@ -28,6 +31,7 @@ def _op(args: list[str], account: str | None = None, timeout: int = 30) -> str:
     cmd = ["op", *args]
     if account:
         cmd += ["--account", account]
+    log.debug("running: %s", " ".join(cmd))
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError as exc:
@@ -35,7 +39,10 @@ def _op(args: list[str], account: str | None = None, timeout: int = 30) -> str:
     except subprocess.TimeoutExpired as exc:
         raise OpError("1Password CLI timed out") from exc
     if proc.returncode != 0:
-        raise OpError((proc.stderr or proc.stdout or "op command failed").strip())
+        msg = (proc.stderr or proc.stdout or "op command failed").strip()
+        log.debug("op exited %d: %s", proc.returncode, msg)
+        raise OpError(msg)
+    log.debug("op ok (%d bytes)", len(proc.stdout))
     return proc.stdout
 
 

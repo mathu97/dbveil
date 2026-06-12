@@ -119,6 +119,18 @@ lets you paste a reference instead.
 veil monitor       # TUI tailing veil-audit.jsonl: allowed / blocked / redaction counts
 ```
 
+### Debugging
+
+Add `--debug` (or set `VEIL_DEBUG=1`) to print logs to stderr — config loading, secret
+resolution, the exact `op` commands run and their errors, guard decisions, and row/redaction
+counts. Secrets are never logged (DSNs are shown host-only, `op read` output as a byte count).
+
+```bash
+veil --debug doctor
+veil --debug test-query "SELECT 1"
+VEIL_DEBUG=1 veil up        # logs go to stderr, safe alongside the MCP stdout protocol
+```
+
 ## Configuration
 
 `veil init` writes a commented `veil.yaml`. Full reference in

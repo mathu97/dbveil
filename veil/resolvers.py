@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
+
+log = logging.getLogger(__name__)
 
 
 class ResolverError(RuntimeError):
@@ -50,6 +53,7 @@ class OnePasswordResolver:
                 "1Password CLI `op` not found. Install it: "
                 "https://developer.1password.com/docs/cli/get-started/"
             )
+        log.debug("running: op read %s", ref)
         try:
             proc = subprocess.run(
                 ["op", "read", ref],
@@ -62,11 +66,13 @@ class OnePasswordResolver:
 
         if proc.returncode != 0:
             msg = (proc.stderr or "").strip()
+            log.debug("op read failed (%d): %s", proc.returncode, msg)
             low = msg.lower()
             hint = ""
             if any(k in low for k in ("sign in", "signed in", "authoriz", "session", "unlock")):
                 hint = " — sign in with `op signin` (or unlock the 1Password app) and retry"
             raise ResolverError(f"1Password could not read {ref}: {msg}{hint}")
+        log.debug("op read ok")
         return proc.stdout.strip()
 
 
@@ -85,7 +91,11 @@ def resolve_url(ref: str) -> str:
             "gcp:// (GCP Secret Manager) resolver is not implemented yet"
         )
     resolver = _RESOLVERS.get(scheme, LiteralResolver())
-    return resolver.resolve(ref)
+    shown = ref if scheme in ("op", "env", "gcp") else "<literal dsn>"
+    log.debug("resolving database url via %s: %s", describe_ref(ref), shown)
+    dsn = resolver.resolve(ref)
+    log.debug("resolved ok")
+    return dsn
 
 
 def describe_ref(ref: str) -> str:
