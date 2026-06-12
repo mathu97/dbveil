@@ -119,47 +119,68 @@ def _pick_onepassword() -> str | None:
     from . import onepassword as op
 
     try:
-        op.ensure_ready()
+        op.ensure_installed()
     except op.OpError as exc:
         err.print(f"[red]1Password unavailable:[/]\n{exc}")
-        if typer.confirm("Paste an op:// reference manually instead?", default=True):
-            return typer.prompt("op:// reference").strip()
-        return None
+        return _manual_op_ref()
+
+    account = None
+    accounts = op.list_accounts()
+    if len(accounts) == 1:
+        account = accounts[0][1]
+    elif len(accounts) > 1:
+        console.print("\nYou have multiple 1Password accounts — pick one:")
+        idx = _pick_index("account", [label for label, _ in accounts])
+        account = accounts[idx][1]
+
+    try:
+        op.ensure_signed_in(account)
+    except op.OpError as exc:
+        err.print(f"[red]1Password:[/]\n{exc}")
+        return _manual_op_ref()
 
     try:
         console.print("\nPick a vault:")
-        vault = _pick_from("vault", op.list_vaults())
-        items = op.list_items(vault)
+        vault = _pick_from("vault", op.list_vaults(account))
+        items = op.list_items(vault, account)
         if not items:
             err.print("[yellow]no items in that vault[/]")
-            return None
+            return _manual_op_ref()
         console.print("\nPick the item holding the connection string:")
         item = _pick_from("item", items)
-        fields = op.list_fields(vault, item)
+        fields = op.list_fields(vault, item, account)
         if not fields:
             err.print("[yellow]no fields on that item[/]")
-            return None
+            return _manual_op_ref()
         console.print("\nPick the field with the DSN:")
         field = _pick_from("field", fields)
     except op.OpError as exc:
         err.print(f"[red]1Password error:[/] {exc}")
-        if typer.confirm("Paste an op:// reference manually instead?", default=True):
-            return typer.prompt("op:// reference").strip()
-        return None
+        return _manual_op_ref()
 
     ref = f"op://{vault}/{item}/{field}"
     console.print(f"[green]Using[/] {ref}")
     return ref
 
 
-def _pick_from(label: str, options: list[str]) -> str:
+def _manual_op_ref() -> str | None:
+    if typer.confirm("Paste an op:// reference manually instead?", default=True):
+        return typer.prompt("op:// reference").strip()
+    return None
+
+
+def _pick_index(label: str, options: list[str]) -> int:
     for i, opt in enumerate(options, 1):
         console.print(f"  [{i}] {opt}")
     while True:
         raw = typer.prompt(f"Select {label} (number)").strip()
         if raw.isdigit() and 1 <= int(raw) <= len(options):
-            return options[int(raw) - 1]
+            return int(raw) - 1
         err.print("[yellow]enter a number from the list[/]")
+
+
+def _pick_from(label: str, options: list[str]) -> str:
+    return options[_pick_index(label, options)]
 
 
 @app.command()

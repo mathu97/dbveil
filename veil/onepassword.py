@@ -24,9 +24,12 @@ class OpError(RuntimeError):
     pass
 
 
-def _op(args: list[str], timeout: int = 30) -> str:
+def _op(args: list[str], account: str | None = None, timeout: int = 30) -> str:
+    cmd = ["op", *args]
+    if account:
+        cmd += ["--account", account]
     try:
-        proc = subprocess.run(["op", *args], capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError as exc:
         raise OpError(INSTALL_HINT) from exc
     except subprocess.TimeoutExpired as exc:
@@ -57,8 +60,7 @@ def installed_version() -> tuple[int, int, int] | None:
     return (nums[0], nums[1], nums[2])
 
 
-def ensure_ready() -> None:
-    """Raise OpError with actionable instructions unless op is installed, new enough, and signed in."""
+def ensure_installed() -> None:
     version = installed_version()
     if version is None:
         raise OpError(INSTALL_HINT)
@@ -66,24 +68,49 @@ def ensure_ready() -> None:
         cur = ".".join(map(str, version))
         need = ".".join(map(str, MIN_VERSION))
         raise OpError(f"op {cur} is too old (need >= {need}).\n{INSTALL_HINT}")
+
+
+def ensure_signed_in(account: str | None = None) -> None:
     try:
-        _op(["whoami"])
+        _op(["whoami"], account=account)
     except OpError as exc:
         raise OpError(SIGNIN_HINT) from exc
 
 
-def list_vaults() -> list[str]:
-    data = json.loads(_op(["vault", "list", "--format", "json"]))
+def ensure_ready(account: str | None = None) -> None:
+    """Raise OpError with instructions unless op is installed, new enough, and signed in."""
+    ensure_installed()
+    ensure_signed_in(account)
+
+
+def list_accounts() -> list[tuple[str, str]]:
+    """Return [(label, account_ref)] for each configured account. account_ref is the sign-in URL."""
+    try:
+        data = json.loads(_op(["account", "list", "--format", "json"]))
+    except OpError:
+        return []
+    accounts: list[tuple[str, str]] = []
+    for a in data:
+        url = a.get("url", "")
+        email = a.get("email", "")
+        label = f"{email} ({url})" if email else url
+        if url:
+            accounts.append((label, url))
+    return accounts
+
+
+def list_vaults(account: str | None = None) -> list[str]:
+    data = json.loads(_op(["vault", "list", "--format", "json"], account=account))
     return [v["name"] for v in data if v.get("name")]
 
 
-def list_items(vault: str) -> list[str]:
-    data = json.loads(_op(["item", "list", "--vault", vault, "--format", "json"]))
+def list_items(vault: str, account: str | None = None) -> list[str]:
+    data = json.loads(_op(["item", "list", "--vault", vault, "--format", "json"], account=account))
     return [i["title"] for i in data if i.get("title")]
 
 
-def list_fields(vault: str, item: str) -> list[str]:
-    data = json.loads(_op(["item", "get", item, "--vault", vault, "--format", "json"]))
+def list_fields(vault: str, item: str, account: str | None = None) -> list[str]:
+    data = json.loads(_op(["item", "get", item, "--vault", vault, "--format", "json"], account=account))
     labels: list[str] = []
     for f in data.get("fields", []):
         label = f.get("label") or f.get("id")
