@@ -4,6 +4,11 @@ import asyncio
 import os
 import re
 
+try:
+    import readline  # noqa: F401 — enables arrow-key line editing in prompts
+except ImportError:
+    pass
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
