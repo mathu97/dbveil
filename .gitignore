@@ -9,6 +9,7 @@ build/
 .ruff_cache/
 
 # local config + secrets + audit output
-pgveil.yaml
+veil.yaml
+veil.*.yaml
 *-audit.jsonl
 .env
