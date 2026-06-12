@@ -70,54 +70,37 @@ def version() -> None:
 def init(
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite an existing config."),
 ) -> None:
-    """Create a veil.yaml — interactively pick each database's secret source."""
+    """Create a veil.yaml — pick the database's secret source."""
     path = Config.default_path()
     if path.exists() and not force:
         err.print(f"[yellow]{path} already exists. Use --force to overwrite.[/]")
         raise typer.Exit(1)
 
-    console.print(Panel.fit("[bold]veil init[/] — let's set up safe database access", border_style="cyan"))
+    console.print(Panel.fit("[bold]Let's set up safe database access[/]", border_style="cyan"))
 
-    instances: dict[str, str] = {}
-    while True:
-        default_name = "default" if not instances else f"db{len(instances) + 1}"
-        name = _text("Database name", default=default_name)
-        if not name:
-            name = default_name
-        if name in instances:
-            err.print(f"[yellow]'{name}' is already added — pick another name.[/]")
-            continue
-        url = _choose_source(name)
-        if not url:
-            continue
-        instances[name] = url
-        if not _confirm("Add another database?", default=False):
-            break
-
-    if len(instances) == 1:
-        default = next(iter(instances))
-    else:
-        default = _select("Which database is the default?", list(instances))
+    url = None
+    while not url:
+        url = _choose_source()
 
     rules: list[tuple[str, str, str]] = []
     pii_tables: list[str] = []
-    if _confirm(f"Introspect '{default}' now to auto-suggest PII columns?", default=False):
+    if _confirm("Introspect the database now to auto-suggest PII columns?", default=False):
         try:
-            rules, pii_tables = asyncio.run(_introspect(_resolve_env(instances[default])))
+            rules, pii_tables = asyncio.run(_introspect(_resolve_env(url)))
             console.print(f"[green]Found {len(rules)} likely PII column(s) across {len(pii_tables)} table(s).[/]")
         except Exception as exc:
             err.print(f"[yellow]Introspection failed ({exc}). Writing a template you can edit by hand.[/]")
 
-    path.write_text(_render_config(instances, default, rules, pii_tables))
+    path.write_text(_render_config({"default": url}, "default", rules, pii_tables))
     console.print(f"[bold green]Wrote {path}[/]")
     console.print("Next: [cyan]veil doctor[/] to verify, then [cyan]veil up[/] to run the proxy.")
 
 
-def _choose_source(name: str) -> str | None:
+def _choose_source() -> str | None:
     from InquirerPy.base.control import Choice
 
     choice = _select(
-        f"How should veil get the connection string for {name}?",
+        "How should veil get the database connection string?",
         [
             Choice("op", "1Password — browse and pick a secret (op://)"),
             Choice("paste", "Paste a value — a postgresql:// URL or an op:// / env:// reference"),
@@ -219,7 +202,7 @@ def doctor(
         err.print(f"[red]{exc}[/]")
         raise typer.Exit(1)
 
-    table = Table(title=f"veil doctor · {view.name}", show_header=True, header_style="bold")
+    table = Table(title=view.name, show_header=True, header_style="bold")
     table.add_column("check")
     table.add_column("result")
 

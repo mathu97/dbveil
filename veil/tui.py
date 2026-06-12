@@ -15,7 +15,7 @@ _COLORS = {"allowed": "green", "blocked": "red", "error": "yellow"}
 
 def _render(entries, path: Path):
     table = Table(
-        title=f"veil monitor — tailing {path}  (Ctrl-C to quit)",
+        title=f"Tailing {path}  (Ctrl-C to quit)",
         expand=True,
         header_style="bold",
     )

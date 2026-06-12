@@ -107,11 +107,12 @@ veil test-query --db prod "…"  # query a specific instance
 
 A single `database.url:` still works and becomes the lone `default` instance.
 
-`veil init` walks you through this interactively: for each database it asks how to source the
-connection string — **browse 1Password** (lists your vaults → items → fields and writes the
-`op://` reference), paste a URL/reference, or name an env var. Choosing 1Password requires the
-`op` CLI (≥ 2.0) installed and signed in; if it isn't, init tells you exactly how to fix it and
-lets you paste a reference instead.
+`veil init` sets up a single database interactively: it asks how to source the connection
+string — **browse 1Password** (lists your vaults → items → fields and writes the `op://`
+reference), paste a URL/reference, or name an env var. Choosing 1Password requires the `op` CLI
+(≥ 2.0) installed and signed in; if it isn't, init tells you exactly how to fix it and lets you
+paste a reference instead. To run against multiple environments, add a `databases:` map by hand
+(see above) — init configures one.
 
 ### Watch it live
 
