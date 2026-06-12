@@ -287,8 +287,12 @@ def up(
     build_server(cfg).run()
 
 
-@app.command()
-def instances(
+instances_app = typer.Typer(help="List or add database instances.", no_args_is_help=True)
+app.add_typer(instances_app, name="instances")
+
+
+@instances_app.command("list")
+def _instances_list(
     config: str = typer.Option(None, "--config", "-c"),
 ) -> None:
     """List configured database instances and how each DSN is resolved."""
@@ -307,6 +311,64 @@ def instances(
             "●" if name == cfg.default else "",
         )
     console.print(table)
+
+
+@instances_app.command("add")
+def _instances_add(
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Add a new database instance to your veil.yaml (interactive)."""
+    from pathlib import Path
+
+    from ruamel.yaml import YAML
+    from ruamel.yaml.comments import CommentedMap
+
+    path = Path(config) if config else Config.default_path()
+    if not path.exists():
+        err.print(f"[red]config error:[/] {path} not found. Run `veil init` first.")
+        raise typer.Exit(1)
+
+    yaml_rt = YAML()
+    yaml_rt.preserve_quotes = True
+    data = yaml_rt.load(path.read_text()) or CommentedMap()
+
+    existing = set(data["databases"].keys()) if data.get("databases") else (
+        {"default"} if "database" in data else set()
+    )
+
+    name = _text("New database name", default="prod")
+    if not name:
+        err.print("[yellow]no name given[/]")
+        raise typer.Exit(1)
+    if name in existing:
+        err.print(f"[red]'{name}' already exists in {path.name}[/]")
+        raise typer.Exit(1)
+
+    url = None
+    while not url:
+        url = _choose_source()
+
+    if not data.get("databases"):
+        dbs = CommentedMap()
+        if "database" in data:
+            single = data["database"]
+            del data["database"]
+            dbs["default"] = single
+            data.insert(0, "databases", dbs)
+            if "default" not in data:
+                data.insert(1, "default", "default")
+        else:
+            data.insert(0, "databases", dbs)
+
+    entry = CommentedMap()
+    entry["url"] = url
+    data["databases"][name] = entry
+
+    with path.open("w") as f:
+        yaml_rt.dump(data, f)
+
+    console.print(f"[bold green]Added '{name}' to {path}[/]")
+    console.print(f'Use it with [cyan]--db {name}[/] (CLI) or database="{name}" (MCP query).')
 
 
 @app.command()

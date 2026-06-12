@@ -100,7 +100,8 @@ default: staging
 ```
 
 ```bash
-veil instances                 # list configured DBs and how each resolves (no secrets read)
+veil instances list            # show configured DBs and how each resolves (no secrets read)
+veil instances add             # add another database instance (interactive)
 veil doctor --db prod          # verify a specific instance
 veil test-query --db prod "…"  # query a specific instance
 ```

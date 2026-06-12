@@ -20,6 +20,7 @@ dependencies = [
     "rich>=13.7",
     "mcp>=1.2",
     "inquirerpy>=0.3",
+    "ruamel.yaml>=0.18",
 ]
 
 [project.optional-dependencies]
