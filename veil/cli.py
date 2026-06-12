@@ -59,30 +59,107 @@ def version() -> None:
 def init(
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite an existing config."),
 ) -> None:
-    """Create a veil.yaml config, optionally auto-detecting PII columns."""
+    """Create a veil.yaml — interactively pick each database's secret source."""
     path = Config.default_path()
     if path.exists() and not force:
         err.print(f"[yellow]{path} already exists. Use --force to overwrite.[/]")
         raise typer.Exit(1)
 
     console.print(Panel.fit("[bold]veil init[/] — let's set up safe database access", border_style="cyan"))
-    db_url = typer.prompt(
-        "Database URL (env refs like ${DATABASE_URL} are kept as-is in the file)",
-        default="${DATABASE_URL}",
-    )
+
+    instances: dict[str, str] = {}
+    while True:
+        default_name = "default" if not instances else f"db{len(instances) + 1}"
+        name = typer.prompt("Database name", default=default_name).strip()
+        if name in instances:
+            err.print(f"[yellow]'{name}' is already added — pick another name.[/]")
+            continue
+        url = _choose_source(name)
+        if not url:
+            continue
+        instances[name] = url
+        if not typer.confirm("Add another database?", default=False):
+            break
+
+    if len(instances) == 1:
+        default = next(iter(instances))
+    else:
+        console.print("\nWhich database should be the default?")
+        default = _pick_from("default", list(instances))
 
     rules: list[tuple[str, str, str]] = []
     pii_tables: list[str] = []
-    if typer.confirm("Introspect the database now to auto-suggest PII columns?", default=False):
+    if typer.confirm(f"Introspect '{default}' now to auto-suggest PII columns?", default=False):
         try:
-            rules, pii_tables = asyncio.run(_introspect(_resolve_env(db_url)))
+            rules, pii_tables = asyncio.run(_introspect(_resolve_env(instances[default])))
             console.print(f"[green]Found {len(rules)} likely PII column(s) across {len(pii_tables)} table(s).[/]")
         except Exception as exc:
             err.print(f"[yellow]Introspection failed ({exc}). Writing a template you can edit by hand.[/]")
 
-    path.write_text(_render_config(db_url, rules, pii_tables))
+    path.write_text(_render_config(instances, default, rules, pii_tables))
     console.print(f"[bold green]Wrote {path}[/]")
     console.print("Next: [cyan]veil doctor[/] to verify, then [cyan]veil up[/] to run the proxy.")
+
+
+def _choose_source(name: str) -> str | None:
+    console.print(f"\nHow should veil get the connection string for [bold]{name}[/]?")
+    console.print("  [1] 1Password — browse and pick a secret (op://)")
+    console.print("  [2] Paste a value — a postgresql:// URL or an op:// / env:// reference")
+    console.print("  [3] Environment variable — env://VAR")
+    choice = typer.prompt("Choose", default="1").strip()
+    if choice == "1":
+        return _pick_onepassword()
+    if choice == "3":
+        var = typer.prompt("Environment variable name", default="VEIL_DATABASE_URL").strip()
+        return f"env://{var}"
+    return typer.prompt("Connection string or reference").strip()
+
+
+def _pick_onepassword() -> str | None:
+    from . import onepassword as op
+
+    try:
+        op.ensure_ready()
+    except op.OpError as exc:
+        err.print(f"[red]1Password unavailable:[/]\n{exc}")
+        if typer.confirm("Paste an op:// reference manually instead?", default=True):
+            return typer.prompt("op:// reference").strip()
+        return None
+
+    try:
+        console.print("\nPick a vault:")
+        vault = _pick_from("vault", op.list_vaults())
+        items = op.list_items(vault)
+        if not items:
+            err.print("[yellow]no items in that vault[/]")
+            return None
+        console.print("\nPick the item holding the connection string:")
+        item = _pick_from("item", items)
+        fields = op.list_fields(vault, item)
+        if not fields:
+            err.print("[yellow]no fields on that item[/]")
+            return None
+        console.print("\nPick the field with the DSN:")
+        field = _pick_from("field", fields)
+    except op.OpError as exc:
+        err.print(f"[red]1Password error:[/] {exc}")
+        if typer.confirm("Paste an op:// reference manually instead?", default=True):
+            return typer.prompt("op:// reference").strip()
+        return None
+
+    ref = f"op://{vault}/{item}/{field}"
+    console.print(f"[green]Using[/] {ref}")
+    return ref
+
+
+def _pick_from(label: str, options: list[str]) -> str:
+    for i, opt in enumerate(options, 1):
+        console.print(f"  [{i}] {opt}")
+    while True:
+        raw = typer.prompt(f"Select {label} (number)").strip()
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return options[int(raw) - 1]
+        err.print("[yellow]enter a number from the list[/]")
 
 
 @app.command()
@@ -276,12 +353,22 @@ def _safe_ref(ref: str) -> str:
     return re.sub(r"(://[^:/@]+:)[^@]+(@)", r"\1***\2", ref)
 
 
-def _render_config(db_url: str, rules: list[tuple[str, str, str]], pii_tables: list[str]) -> str:
-    lines = [
-        "# veil configuration — https://github.com/mathu97/dbveil",
-        "database:",
-        f"  url: {db_url}",
-        "",
+def _render_config(
+    instances: dict[str, str],
+    default: str,
+    rules: list[tuple[str, str, str]],
+    pii_tables: list[str],
+) -> str:
+    lines = ["# veil configuration — https://github.com/mathu97/dbveil", ""]
+    if len(instances) == 1 and "default" in instances:
+        lines += ["database:", f"  url: {instances['default']}", ""]
+    else:
+        lines.append("databases:")
+        for name, url in instances.items():
+            lines += [f"  {name}:", f"    url: {url}"]
+        lines += [f"default: {default}", ""]
+
+    lines += [
         "guard:",
         "  allow_select_star: false   # block SELECT * on PII tables; force explicit columns",
         "  max_rows: 1000",

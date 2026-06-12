@@ -44,7 +44,7 @@ pip install 'dbveil[llm]'   # local-LLM (Ollama) redaction
 ## Quickstart
 
 ```bash
-veil init          # interactive: DB URL + auto-detect PII columns → writes veil.yaml
+veil init          # interactive: pick a secret source (1Password / URL / env) + auto-detect PII
 veil doctor        # verify guard, connectivity, and that READ ONLY actually blocks writes
 veil test-query "SELECT email, created_at FROM users LIMIT 5"   # try it without an agent
 veil up            # run the MCP proxy on stdio (what Claude Code connects to)
@@ -106,6 +106,12 @@ veil test-query --db prod "…"  # query a specific instance
 ```
 
 A single `database.url:` still works and becomes the lone `default` instance.
+
+`veil init` walks you through this interactively: for each database it asks how to source the
+connection string — **browse 1Password** (lists your vaults → items → fields and writes the
+`op://` reference), paste a URL/reference, or name an env var. Choosing 1Password requires the
+`op` CLI (≥ 2.0) installed and signed in; if it isn't, init tells you exactly how to fix it and
+lets you paste a reference instead.
 
 ### Watch it live
 
