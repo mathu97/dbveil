@@ -196,14 +196,6 @@ masked, never passed through.
   password.
 - **Railway / managed PaaS** — use the provided TLS endpoint with a dedicated read-only role.
 
-## Roadmap
-
-- **Postgres wire-protocol frontend** — so `psql`, BI tools, and any client (not just MCP) get
-  the same guard + redaction. The pipeline is already frontend-agnostic.
-- **More engines** — MySQL, SQLite (the guard's parser is the only Postgres-specific piece; it's
-  a pluggable backend).
-- **Schema-aware lineage** — resolve aliased PII columns back to their source table.
-
 ## Development
 
 ```bash
