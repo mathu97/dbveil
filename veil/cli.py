@@ -230,8 +230,44 @@ def doctor(
     table.add_row("server-side READ ONLY transaction rejects writes", _mark(readonly_ok))
 
     console.print(table)
+
+    if not conn_ok and describe_ref(view.url) == "1Password":
+        from . import onepassword as op
+
+        status, hint = op.readiness()
+        if status != "ready":
+            err.print("\n[yellow]1Password isn't set up yet — that's why the connection failed:[/]")
+            err.print(hint)
+
     if not (guard_ok and conn_ok and readonly_ok):
         raise typer.Exit(1)
+
+
+@app.command()
+def setup(
+    config: str = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Check that secret backends (1Password) are ready; print setup steps if not."""
+    try:
+        cfg = Config.load(config)
+    except FileNotFoundError:
+        return  # nothing configured yet — nothing to check
+    except Exception as exc:
+        err.print(f"[red]could not load config:[/] {exc}")
+        raise typer.Exit(1)
+
+    uses_op = any(describe_ref(cfg.instance(n).url) == "1Password" for n in cfg.instance_names())
+    if not uses_op:
+        return
+
+    from . import onepassword as op
+
+    status, hint = op.readiness()
+    if status == "ready":
+        console.print("[green]✓ 1Password is ready for veil.[/]")
+        return
+    console.print("[yellow]veil reads your database secret from 1Password, but it isn't ready yet:[/]\n")
+    console.print(hint)
 
 
 @app.command(name="test-query")

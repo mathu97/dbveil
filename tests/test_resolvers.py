@@ -45,33 +45,30 @@ def test_describe_ref():
 
 
 def test_onepassword_missing_cli(monkeypatch):
-    monkeypatch.setattr(resolvers.shutil, "which", lambda _: None)
+    from veil import onepassword as op
+
+    monkeypatch.setattr(op, "installed_version", lambda: None)
     with pytest.raises(ResolverError) as exc:
         resolve_url("op://Vault/item/field")
-    assert "1Password CLI" in str(exc.value)
+    assert "Install" in str(exc.value)
 
 
 def test_onepassword_reads_secret(monkeypatch):
-    monkeypatch.setattr(resolvers.shutil, "which", lambda _: "/usr/local/bin/op")
+    from veil import onepassword as op
 
-    class _Proc:
-        returncode = 0
-        stdout = "postgresql://op@host/db\n"
-        stderr = ""
-
-    monkeypatch.setattr(resolvers.subprocess, "run", lambda *a, **k: _Proc())
+    monkeypatch.setattr(op, "read", lambda ref: "postgresql://op@host/db")
     assert resolve_url("op://Vault/item/field") == "postgresql://op@host/db"
 
 
 def test_onepassword_signin_hint(monkeypatch):
-    monkeypatch.setattr(resolvers.shutil, "which", lambda _: "/usr/local/bin/op")
+    from veil import onepassword as op
 
-    class _Proc:
-        returncode = 1
-        stdout = ""
-        stderr = "you are not currently signed in"
+    monkeypatch.setattr(op, "installed_version", lambda: (2, 34, 1))
 
-    monkeypatch.setattr(resolvers.subprocess, "run", lambda *a, **k: _Proc())
+    def boom(*a, **k):
+        raise op.OpError("you are not currently signed in")
+
+    monkeypatch.setattr(op, "_op", boom)
     with pytest.raises(ResolverError) as exc:
         resolve_url("op://Vault/item/field")
-    assert "op signin" in str(exc.value)
+    assert "Integrate with 1Password CLI" in str(exc.value)

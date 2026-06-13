@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
-import subprocess
 
 log = logging.getLogger(__name__)
 
@@ -48,32 +46,16 @@ class OnePasswordResolver:
     scheme = "op"
 
     def resolve(self, ref: str) -> str:
-        if shutil.which("op") is None:
-            raise ResolverError(
-                "1Password CLI `op` not found. Install it: "
-                "https://developer.1password.com/docs/cli/get-started/"
-            )
+        from . import onepassword as op
+
         log.debug("running: op read %s", ref)
         try:
-            proc = subprocess.run(
-                ["op", "read", ref],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ResolverError(f"1Password timed out reading {ref}") from exc
-
-        if proc.returncode != 0:
-            msg = (proc.stderr or "").strip()
-            log.debug("op read failed (%d): %s", proc.returncode, msg)
-            low = msg.lower()
-            hint = ""
-            if any(k in low for k in ("sign in", "signed in", "authoriz", "session", "unlock")):
-                hint = " — sign in with `op signin` (or unlock the 1Password app) and retry"
-            raise ResolverError(f"1Password could not read {ref}: {msg}{hint}")
+            dsn = op.read(ref)
+        except op.OpError as exc:
+            log.debug("op read failed: %s", exc)
+            raise ResolverError(str(exc)) from exc
         log.debug("op read ok")
-        return proc.stdout.strip()
+        return dsn
 
 
 _RESOLVERS = {r.scheme: r for r in (EnvResolver(), OnePasswordResolver())}

@@ -9,17 +9,24 @@ log = logging.getLogger(__name__)
 
 MIN_VERSION = (2, 0, 0)
 
+_DEV_SETTINGS = (
+    "  1. Open the 1Password app -> Settings (Cmd+,) -> Developer\n"
+    "  2. Turn on 'Integrate with 1Password CLI'\n"
+    "  3. Turn on 'Biometric unlock for 1Password CLI' (Touch ID)\n"
+    "  Then verify with:  op whoami"
+)
+
 INSTALL_HINT = (
-    "1Password CLI `op` is required for the 1Password option.\n"
+    "1Password CLI `op` isn't installed (veil needs it to read your database secret from 1Password).\n"
     "  Install:  brew install 1password-cli\n"
     "            (or https://developer.1password.com/docs/cli/get-started/)\n"
-    "  Enable:   1Password app -> Settings -> Developer -> 'Integrate with 1Password CLI'"
+    "  Then connect it to the desktop app:\n" + _DEV_SETTINGS
 )
+
 SIGNIN_HINT = (
-    "1Password CLI is installed but not signed in.\n"
-    "  Easiest:  1Password app -> Settings -> Developer -> enable\n"
-    "            'Integrate with 1Password CLI' (then `op` unlocks with Touch ID)\n"
-    "  Or run:   op signin"
+    "1Password CLI is installed but not connected/unlocked. Enable it once:\n"
+    + _DEV_SETTINGS
+    + "\n  (CI / headless: set OP_SERVICE_ACCOUNT_TOKEN instead of using Touch ID.)"
 )
 
 
@@ -88,6 +95,44 @@ def ensure_ready(account: str | None = None) -> None:
     """Raise OpError with instructions unless op is installed, new enough, and signed in."""
     ensure_installed()
     ensure_signed_in(account)
+
+
+def readiness() -> tuple[str, str]:
+    """Best-effort check WITHOUT triggering Touch ID.
+
+    Returns (status, hint): status is 'ready' | 'install' | 'signin'. 'ready' means op is
+    installed and at least one account is configured (the actual unlock happens at query time).
+    """
+    version = installed_version()
+    if version is None:
+        return ("install", INSTALL_HINT)
+    if version < MIN_VERSION:
+        cur = ".".join(map(str, version))
+        need = ".".join(map(str, MIN_VERSION))
+        return ("install", f"op {cur} is too old (need >= {need}).\n{INSTALL_HINT}")
+    try:
+        accounts = list_accounts()
+    except OpError:
+        accounts = []
+    if not accounts:
+        return ("signin", SIGNIN_HINT)
+    return ("ready", "")
+
+
+def read(ref: str) -> str:
+    """Resolve an op:// reference to its value, with actionable errors when op isn't ready."""
+    ensure_installed()
+    try:
+        out = _op(["read", ref], timeout=120)  # allow time for a Touch ID approval
+    except OpError as exc:
+        low = str(exc).lower()
+        if any(
+            k in low
+            for k in ("sign in", "signed in", "not currently signed", "session", "authoriz", "unlock", "no account")
+        ):
+            raise OpError(SIGNIN_HINT) from exc
+        raise
+    return out.strip()
 
 
 def list_accounts() -> list[tuple[str, str]]:
