@@ -86,7 +86,6 @@ resolved at connect time, chosen by its scheme:
 | `op://vault/item/field` | **1Password** CLI (`op read`) — uses your existing 1Password auth; `OP_SERVICE_ACCOUNT_TOKEN` in CI |
 | `env://VAR_NAME` | environment variable |
 | `${VAR}` | inline env expansion |
-| `gcp://project/secret` | GCP Secret Manager *(coming soon)* |
 | `postgresql://…` | a literal DSN |
 
 Configure one or many named instances; the agent picks one per query (`query(sql, database="prod")`),
@@ -114,6 +113,11 @@ reference), paste a URL/reference, or name an env var. Choosing 1Password requir
 (≥ 2.0) installed and signed in; if it isn't, init tells you exactly how to fix it and lets you
 paste a reference instead. To run against multiple environments, add a `databases:` map by hand
 (see above) — init configures one.
+
+If your config uses 1Password, `veil setup` checks that the `op` CLI is connected and prints the
+exact desktop-app steps to enable if it isn't — without triggering Touch ID, so it's safe to run
+after install. When `op` is set up but locked, veil tells you to unlock it (`op whoami`) rather
+than to re-configure.
 
 ### Watch it live
 
