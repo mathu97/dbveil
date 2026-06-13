@@ -23,11 +23,31 @@ INSTALL_HINT = (
     "  Then connect it to the desktop app:\n" + _DEV_SETTINGS
 )
 
-SIGNIN_HINT = (
-    "1Password CLI is installed but not connected/unlocked. Enable it once:\n"
+SETUP_HINT = (
+    "1Password CLI isn't connected to the desktop app yet. Enable it once:\n"
     + _DEV_SETTINGS
     + "\n  (CI / headless: set OP_SERVICE_ACCOUNT_TOKEN instead of using Touch ID.)"
 )
+
+LOCKED_HINT = (
+    "1Password is set up but locked (the CLI session expired). Just unlock it:\n"
+    "  Unlock:  op whoami     (approve the Touch ID prompt)\n"
+    "  or:      op signin\n"
+    "  Then retry — veil also prompts for Touch ID automatically on the next query."
+)
+
+
+def _auth_hint() -> str:
+    """Pick the right message for an auth failure: locked (set up) vs not connected.
+
+    `op account list` works while locked (no Touch ID), so accounts-present + auth-error
+    means the session is locked, not that 1Password is unconfigured.
+    """
+    try:
+        accounts = list_accounts()
+    except OpError:
+        accounts = []
+    return LOCKED_HINT if accounts else SETUP_HINT
 
 
 class OpError(RuntimeError):
@@ -88,7 +108,7 @@ def ensure_signed_in(account: str | None = None) -> None:
     try:
         _op(["whoami"], account=account)
     except OpError as exc:
-        raise OpError(SIGNIN_HINT) from exc
+        raise OpError(_auth_hint()) from exc
 
 
 def ensure_ready(account: str | None = None) -> None:
@@ -115,7 +135,7 @@ def readiness() -> tuple[str, str]:
     except OpError:
         accounts = []
     if not accounts:
-        return ("signin", SIGNIN_HINT)
+        return ("setup", SETUP_HINT)
     return ("ready", "")
 
 
@@ -130,7 +150,7 @@ def read(ref: str) -> str:
             k in low
             for k in ("sign in", "signed in", "not currently signed", "session", "authoriz", "unlock", "no account")
         ):
-            raise OpError(SIGNIN_HINT) from exc
+            raise OpError(_auth_hint()) from exc
         raise
     return out.strip()
 

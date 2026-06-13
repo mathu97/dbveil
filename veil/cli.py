@@ -217,27 +217,24 @@ def doctor(
 
     conn_ok = False
     readonly_ok = False
-    detail = ""
+    conn_error = ""
     try:
         conn_ok, readonly_ok = asyncio.run(_probe(view))
     except Exception as exc:
-        detail = str(exc)
+        conn_error = str(exc)
 
-    table.add_row(
-        f"connection to '{view.name}' (via {describe_ref(view.url)})",
-        _mark(conn_ok) + (f"  [dim]{detail}[/]" if detail else ""),
-    )
+    is_hint = bool(conn_error) and len(conn_error.splitlines()) > 1
+    cell = _mark(conn_ok)
+    if conn_error and not is_hint:
+        cell += f"  [dim]{conn_error.splitlines()[0]}[/]"  # short DB errors inline
+    table.add_row(f"connection to '{view.name}' (via {describe_ref(view.url)})", cell)
     table.add_row("server-side READ ONLY transaction rejects writes", _mark(readonly_ok))
 
     console.print(table)
 
-    if not conn_ok and describe_ref(view.url) == "1Password":
-        from . import onepassword as op
-
-        status, hint = op.readiness()
-        if status != "ready":
-            err.print("\n[yellow]1Password isn't set up yet — that's why the connection failed:[/]")
-            err.print(hint)
+    # Our actionable hints (locked / not-connected / install) are multi-line — show them below.
+    if is_hint:
+        err.print(f"\n{conn_error}")
 
     if not (guard_ok and conn_ok and readonly_ok):
         raise typer.Exit(1)

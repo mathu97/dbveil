@@ -23,7 +23,7 @@ def test_readiness_no_accounts(monkeypatch):
     monkeypatch.setattr(op, "installed_version", lambda: (2, 34, 1))
     monkeypatch.setattr(op, "list_accounts", lambda: [])
     status, hint = op.readiness()
-    assert status == "signin"
+    assert status == "setup"
     assert "Integrate with 1Password CLI" in hint
 
 
@@ -40,16 +40,28 @@ def test_read_success(monkeypatch):
     assert op.read("op://V/i/f") == "postgresql://x@h/db"
 
 
-def test_read_not_signed_in_gives_setup_hint(monkeypatch):
+def _auth_boom(*a, **k):
+    raise op.OpError("you are not currently signed in")
+
+
+def test_read_auth_error_not_set_up_says_enable_integration(monkeypatch):
     monkeypatch.setattr(op, "installed_version", lambda: (2, 34, 1))
-
-    def boom(*a, **k):
-        raise op.OpError("you are not currently signed in")
-
-    monkeypatch.setattr(op, "_op", boom)
+    monkeypatch.setattr(op, "_op", _auth_boom)
+    monkeypatch.setattr(op, "list_accounts", lambda: [])  # no accounts = not connected
     with pytest.raises(op.OpError) as exc:
         op.read("op://V/i/f")
     assert "Integrate with 1Password CLI" in str(exc.value)
+
+
+def test_read_auth_error_locked_says_unlock(monkeypatch):
+    monkeypatch.setattr(op, "installed_version", lambda: (2, 34, 1))
+    monkeypatch.setattr(op, "_op", _auth_boom)
+    monkeypatch.setattr(op, "list_accounts", lambda: [("me (x)", "x")])  # set up = locked
+    with pytest.raises(op.OpError) as exc:
+        op.read("op://V/i/f")
+    msg = str(exc.value)
+    assert "locked" in msg and "op whoami" in msg
+    assert "Integrate with 1Password CLI" not in msg
 
 
 def test_setup_warns_when_op_not_ready(tmp_path, monkeypatch):

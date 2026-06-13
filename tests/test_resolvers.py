@@ -64,6 +64,7 @@ def test_onepassword_signin_hint(monkeypatch):
     from veil import onepassword as op
 
     monkeypatch.setattr(op, "installed_version", lambda: (2, 34, 1))
+    monkeypatch.setattr(op, "list_accounts", lambda: [])  # not connected -> setup hint
 
     def boom(*a, **k):
         raise op.OpError("you are not currently signed in")
